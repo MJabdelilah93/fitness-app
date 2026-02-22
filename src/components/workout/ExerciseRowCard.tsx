@@ -3,7 +3,7 @@ import { ExternalLink, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 
 import { db, upsertRowLog } from '../../db/db'
-import { parseExercise, isLoggableRow, type ProgramRow } from '../../data/programData'
+import { parseExercise, isLoggableRow, parseMaxReps, type ProgramRow } from '../../data/programData'
 import { cn } from '../../utils/cn'
 import type { TrainingMode, RowLog } from '../../types'
 
@@ -48,7 +48,7 @@ export function ExerciseRowCard({ row, date, mode, readOnly = false }: Props) {
   // ── Local state (inputs) ──────────────────────────────────────────
 
   const [setsDone,  setSetsDone]  = useState(row.sets)
-  const [repsDone,  setRepsDone]  = useState(row.reps)
+  const [repsDone,  setRepsDone]  = useState(() => parseMaxReps(row.reps ?? ''))
   const [weightKg,  setWeightKg]  = useState('')
   const [notes,     setNotes]     = useState('')
   const [completed, setCompleted] = useState(false)
@@ -61,7 +61,7 @@ export function ExerciseRowCard({ row, date, mode, readOnly = false }: Props) {
     if (existingLog) {
       setUseAlt(existingLog.useAlt)
       setSetsDone(existingLog.setsDone || row.sets)
-      setRepsDone(existingLog.repsDone || row.reps)
+      setRepsDone(existingLog.repsDone || parseMaxReps(row.reps ?? ''))
       setWeightKg(existingLog.weightKg)
       setNotes(existingLog.notes)
       setCompleted(existingLog.completed)
@@ -72,7 +72,7 @@ export function ExerciseRowCard({ row, date, mode, readOnly = false }: Props) {
   useEffect(() => {
     initialized.current = false
     setSetsDone(row.sets)
-    setRepsDone(row.reps)
+    setRepsDone(parseMaxReps(row.reps ?? ''))
     setWeightKg('')
     setNotes('')
     setCompleted(false)
@@ -177,6 +177,9 @@ export function ExerciseRowCard({ row, date, mode, readOnly = false }: Props) {
         <p className="text-[11px] text-zinc-600 ml-6">
           {row.part}
           {row.sets && ` · ${row.sets} sets × ${row.reps}`}
+          {row.kcalMin != null && (
+            <span className="ml-1.5 text-orange-400/60">~{row.kcalMin}–{row.kcalMax} kcal</span>
+          )}
         </p>
 
         {loggable && !readOnly && (

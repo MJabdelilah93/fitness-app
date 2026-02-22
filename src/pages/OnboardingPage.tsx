@@ -5,7 +5,16 @@ import { db } from '../db/db'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { cn } from '../utils/cn'
+import { todayISO } from '../utils/dateUtils'
 import type { TrainingMode, WeightUnit } from '../types'
+
+// Ramadan 2026: Feb 18 → Mar 20
+const RAMADAN_END_2026 = '2026-03-20'
+
+/** Returns 'ramadan' if today is on or before the end date, otherwise 'normal'. */
+function detectDefaultMode(): TrainingMode {
+  return todayISO() <= RAMADAN_END_2026 ? 'ramadan' : 'normal'
+}
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
@@ -72,9 +81,9 @@ const TOTAL_STEPS = 3
 export function OnboardingPage() {
   const navigate = useNavigate()
   const [step, setStep]         = useState(0)
-  const [mode, setMode]         = useState<TrainingMode>('normal')
+  const [mode, setMode]         = useState<TrainingMode>(detectDefaultMode)
   const [name, setName]         = useState('')
-  const [ramadanEnd, setRamadanEnd] = useState('2025-03-20')
+  const [ramadanEnd, setRamadanEnd] = useState(RAMADAN_END_2026)
   const [stepGoal, setStepGoal] = useState('10000')
   const [unit, setUnit]         = useState<WeightUnit>('kg')
   const [saving, setSaving]     = useState(false)

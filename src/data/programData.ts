@@ -3,17 +3,23 @@ import type { TrainingMode } from '../types'
 // ─── Core types ───────────────────────────────────────────────────────────────
 
 export interface ProgramRow {
-  day:      string   // 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun'
-  part:     string   // 'Warm-up', 'Upper A', 'Lower A', 'Steps', 'Rest', etc.
-  exercise: string   // Full name – may contain " (Alt: ...)"
-  url:      string   // YouTube search URL
-  sets:     string   // '3', '2–3', '' for cardio/warmup
-  reps:     string   // '8–12', '20–30 min', ''
+  day:          string   // 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun'
+  part:         string   // 'Warm-up', 'Upper A', 'Lower A', 'Steps', etc.
+  exercise:     string   // Main exercise name
+  url:          string   // YouTube search URL for main exercise
+  sets:         string   // '3', '2–3', '—' for timed, '' for cardio
+  reps:         string   // '8–12', '20–40 min', '5 min', etc.
+  altExercise?: string   // Alternative exercise name (separate field)
+  altUrl?:      string   // YouTube URL for alt exercise
+  kcalMin?:     number   // Estimated kcal burned (total, all sets) — min end
+  kcalMax?:     number   // Estimated kcal burned (total, all sets) — max end
 }
 
 export interface MealItem {
-  meal:  string   // 'Iftar (Maghrib)', 'Snack', 'Pre/Suhoor', 'Meal 1 (12:00)', etc.
-  items: string   // Human-readable food description
+  meal:     string   // 'Iftar (Maghrib)', 'Snack', 'Suhoor', 'Meal 1 (12:00)', etc.
+  items:    string   // Human-readable food description
+  kcalMin?: number   // Estimated kcal — min
+  kcalMax?: number   // Estimated kcal — max
 }
 
 export interface NutritionDay {
@@ -26,8 +32,6 @@ export interface NutritionDay {
 /** Normalise exercise name to a stable storage key. */
 export function makeExerciseKey(name: string): string {
   return name
-    .replace(/\s*\([^)]*\)/g, '')   // strip all parenthetical text
-    .replace(/\s*Alt:.*$/i, '')      // strip trailing Alt: ...
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
@@ -39,19 +43,16 @@ export interface ParsedExercise {
   alt?: { name: string; key: string; url: string }
 }
 
-/** Split "Exercise (Alt: Alternative)" into main + optional alt. */
+/** Extract main and optional alt exercise from a ProgramRow. */
 export function parseExercise(row: ProgramRow): ParsedExercise {
-  const altMatch = row.exercise.match(/\(Alt:\s*([^)]+)\)/i)
-  const mainName = row.exercise.replace(/\s*\(Alt:[^)]*\)/i, '').trim()
   const result: ParsedExercise = {
-    main: { name: mainName, key: makeExerciseKey(mainName), url: row.url },
+    main: { name: row.exercise, key: makeExerciseKey(row.exercise), url: row.url },
   }
-  if (altMatch) {
-    const altName = altMatch[1].trim()
+  if (row.altExercise) {
     result.alt = {
-      name: altName,
-      key:  makeExerciseKey(altName),
-      url:  `https://www.youtube.com/results?search_query=${encodeURIComponent(altName)}`,
+      name: row.altExercise,
+      key:  makeExerciseKey(row.altExercise),
+      url:  row.altUrl ?? `https://www.youtube.com/results?search_query=${encodeURIComponent(row.altExercise)}`,
     }
   }
   return result
@@ -59,7 +60,13 @@ export function parseExercise(row: ProgramRow): ParsedExercise {
 
 /** Returns true when a row has structured sets/reps (i.e. is a weight-training exercise). */
 export function isLoggableRow(row: ProgramRow): boolean {
-  return row.sets !== '' && row.reps !== ''
+  return row.sets !== '' && row.sets !== '—' && row.reps !== ''
+}
+
+/** Parse the maximum rep value from a range string like "8–12" → "12", "10" → "10". */
+export function parseMaxReps(reps: string): string {
+  const match = reps.match(/^(\d+)\s*[–\-]\s*(\d+)$/)
+  return match ? match[2] : reps
 }
 
 const JS_DAY_SHORT: Record<number, string> = {
@@ -93,141 +100,160 @@ export function getWeekMeals(mode: TrainingMode): NutritionDay[] {
 }
 
 // ─── Ramadan workout ──────────────────────────────────────────────────────────
+// Calorie estimates assume 104 kg bodyweight (MET × weight × time or sets × kcal/set).
 
 const RAMADAN_WORKOUT: ProgramRow[] = [
-  { day: 'Mon', part: 'Warm-up', exercise: 'Treadmill walk (incline) 5–7 min',       url: 'https://www.youtube.com/results?search_query=Treadmill+walk+incline',          sets: '',    reps: '5–7 min' },
-  { day: 'Mon', part: 'Warm-up', exercise: 'Band pull-aparts / cable face pulls',     url: 'https://www.youtube.com/results?search_query=Band+pull-aparts+cable+face+pulls', sets: '2',   reps: '15' },
-  { day: 'Mon', part: 'Warm-up', exercise: 'Machine chest press light',               url: 'https://www.youtube.com/results?search_query=Machine+chest+press+light',         sets: '1–2', reps: '12–15' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Incline Chest Press Machine',             url: 'https://www.youtube.com/results?search_query=Incline+Chest+Press+Machine',       sets: '3',   reps: '8–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Lat Pulldown (neutral grip)',             url: 'https://www.youtube.com/results?search_query=Lat+Pulldown+neutral+grip',         sets: '3',   reps: '8–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Seated Row Machine',                     url: 'https://www.youtube.com/results?search_query=Seated+Row+Machine',                sets: '3',   reps: '10–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Shoulder Press Machine',                 url: 'https://www.youtube.com/results?search_query=Shoulder+Press+Machine',            sets: '2–3', reps: '8–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Cable Triceps Pressdown',                url: 'https://www.youtube.com/results?search_query=Cable+Triceps+Pressdown',           sets: '2–3', reps: '10–15' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Cable Biceps Curl',                      url: 'https://www.youtube.com/results?search_query=Cable+Biceps+Curl',                 sets: '2–3', reps: '10–15' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Plank',                                  url: 'https://www.youtube.com/results?search_query=Plank+exercise',                    sets: '3',   reps: '30–45s' },
+  // ── Monday: Warm-up + Upper A ──
+  { day: 'Mon', part: 'Warm-up', exercise: 'Bike or Elliptical (easy)',        url: 'https://www.youtube.com/results?search_query=Bike+or+Elliptical+easy+cardio',                    sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Mon', part: 'Warm-up', exercise: 'Bird-dog',                          url: 'https://www.youtube.com/results?search_query=Bird-dog+exercise+tutorial+proper+form',              sets: '2',   reps: '8/side',     kcalMin: 3,   kcalMax: 12  },
+  { day: 'Mon', part: 'Warm-up', exercise: 'Dead bug',                          url: 'https://www.youtube.com/results?search_query=Dead+bug+exercise+tutorial+proper+form',              sets: '2',   reps: '8/side',     kcalMin: 3,   kcalMax: 12  },
+  { day: 'Mon', part: 'Upper A', exercise: 'Machine Chest Press',               url: 'https://www.youtube.com/results?search_query=Machine+Chest+Press+exercise+tutorial',              sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Cable Chest Press',        altUrl: 'https://www.youtube.com/results?search_query=Cable+Chest+Press+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Lat Pulldown (neutral grip)',       url: 'https://www.youtube.com/results?search_query=Lat+Pulldown+neutral+grip+exercise+tutorial',        sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Straight-arm Pulldown',    altUrl: 'https://www.youtube.com/results?search_query=Straight-arm+Pulldown+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Seated Cable Row',                  url: 'https://www.youtube.com/results?search_query=Seated+Cable+Row+exercise+tutorial',                sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Chest-Supported Row',      altUrl: 'https://www.youtube.com/results?search_query=Chest-Supported+Row+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Machine Shoulder Press',            url: 'https://www.youtube.com/results?search_query=Machine+Shoulder+Press+exercise+tutorial',          sets: '2–3', reps: '8–12',       kcalMin: 3,   kcalMax: 26,  altExercise: 'Landmine Press',           altUrl: 'https://www.youtube.com/results?search_query=Landmine+Press+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Machine/Cable Lateral Raise',       url: 'https://www.youtube.com/results?search_query=Machine+Cable+Lateral+Raise+exercise+tutorial',    sets: '2',   reps: '12–15',      kcalMin: 5,   kcalMax: 22,  altExercise: 'Cable Lateral Raise',      altUrl: 'https://www.youtube.com/results?search_query=Cable+Lateral+Raise+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Triceps Pushdown',                  url: 'https://www.youtube.com/results?search_query=Triceps+Pushdown+exercise+tutorial',                sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22,  altExercise: 'Rope Pushdown',            altUrl: 'https://www.youtube.com/results?search_query=Rope+Pushdown+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Hammer Curl',                       url: 'https://www.youtube.com/results?search_query=Hammer+Curl+exercise+tutorial',                    sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22  },
 
-  { day: 'Tue', part: 'Steps',           exercise: 'Brisk walk (outdoor or treadmill)', url: 'https://www.youtube.com/results?search_query=Brisk+walk+treadmill',         sets: '', reps: '20–30 min' },
-  { day: 'Tue', part: 'Optional cardio', exercise: 'Bike or Elliptical (easy)',          url: 'https://www.youtube.com/results?search_query=Bike+Elliptical+easy+cardio', sets: '', reps: '10–20 min' },
+  // ── Tuesday: Warm-up + Lower A ──
+  { day: 'Tue', part: 'Warm-up', exercise: 'Bike (easy)',                       url: 'https://www.youtube.com/results?search_query=Stationary+bike+easy+warm+up',                     sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Tue', part: 'Warm-up', exercise: 'Pallof Press (light)',              url: 'https://www.youtube.com/results?search_query=Pallof+Press+exercise+tutorial',                   sets: '2',   reps: '10/side',    kcalMin: 4,   kcalMax: 15  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Leg Press',                         url: 'https://www.youtube.com/results?search_query=Leg+Press+exercise+tutorial',                      sets: '4',   reps: '10–15',      kcalMin: 8,   kcalMax: 44  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Seated Leg Curl',                   url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl+exercise+tutorial',                sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33,  altExercise: 'Lying Leg Curl',           altUrl: 'https://www.youtube.com/results?search_query=Lying+Leg+Curl+exercise+tutorial' },
+  { day: 'Tue', part: 'Lower A', exercise: 'Leg Extension',                     url: 'https://www.youtube.com/results?search_query=Leg+Extension+exercise+tutorial',                  sets: '3',   reps: '12–15',      kcalMin: 8,   kcalMax: 33,  altExercise: 'Reverse Sled Drag',        altUrl: 'https://www.youtube.com/results?search_query=Reverse+Sled+Drag+exercise+tutorial' },
+  { day: 'Tue', part: 'Lower A', exercise: 'Hip Abduction Machine',             url: 'https://www.youtube.com/results?search_query=Hip+Abduction+Machine+exercise+tutorial',          sets: '3',   reps: '12–20',      kcalMin: 8,   kcalMax: 44,  altExercise: 'Cable Hip Abduction',      altUrl: 'https://www.youtube.com/results?search_query=Cable+Hip+Abduction+exercise+tutorial' },
+  { day: 'Tue', part: 'Lower A', exercise: 'Calf Raise',                        url: 'https://www.youtube.com/results?search_query=Calf+Raise+seated+standing+exercise+tutorial',     sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33,  altExercise: 'Leg Press Calf Raise',     altUrl: 'https://www.youtube.com/results?search_query=Leg+Press+Calf+Raise+exercise+tutorial' },
+  { day: 'Tue', part: 'Lower A', exercise: 'Pallof Press',                      url: 'https://www.youtube.com/results?search_query=Pallof+Press+core+exercise+tutorial',              sets: '3',   reps: '10/side',    kcalMin: 6,   kcalMax: 22,  altExercise: 'Side Plank',               altUrl: 'https://www.youtube.com/results?search_query=Side+Plank+exercise+tutorial' },
 
-  { day: 'Wed', part: 'Warm-up', exercise: 'Bike 5–7 min',                   url: 'https://www.youtube.com/results?search_query=Stationary+bike+warm+up',      sets: '',    reps: '5–7 min' },
-  { day: 'Wed', part: 'Warm-up', exercise: 'Bodyweight glute bridge',        url: 'https://www.youtube.com/results?search_query=Bodyweight+glute+bridge',       sets: '2',   reps: '12–15' },
-  { day: 'Wed', part: 'Warm-up', exercise: 'Leg press light',                url: 'https://www.youtube.com/results?search_query=Leg+press+light+warm+up',      sets: '1–2', reps: '12–15' },
-  { day: 'Wed', part: 'Lower A', exercise: 'Leg Press (limited depth; pain-free)', url: 'https://www.youtube.com/results?search_query=Leg+Press+limited+depth', sets: '4',   reps: '8–12' },
-  { day: 'Wed', part: 'Lower A', exercise: 'Seated Leg Curl',                url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl',              sets: '3',   reps: '10–15' },
-  { day: 'Wed', part: 'Lower A', exercise: 'Leg Extension',                  url: 'https://www.youtube.com/results?search_query=Leg+Extension+machine',        sets: '3',   reps: '10–15' },
-  { day: 'Wed', part: 'Lower A', exercise: 'Hip Thrust Machine',             url: 'https://www.youtube.com/results?search_query=Hip+Thrust+Machine',           sets: '3',   reps: '8–12' },
-  { day: 'Wed', part: 'Lower A', exercise: 'Back Extension Machine',        url: 'https://www.youtube.com/results?search_query=Back+Extension+Machine',       sets: '2–3', reps: '10–15' },
-  { day: 'Wed', part: 'Lower A', exercise: 'Side Plank',                     url: 'https://www.youtube.com/results?search_query=Side+Plank+exercise',         sets: '2',   reps: '20–40s/side' },
+  // ── Wednesday: Steps / Cardio ──
+  { day: 'Wed', part: 'Steps / Cardio', exercise: 'Brisk Walk',                 url: 'https://www.youtube.com/results?search_query=Brisk+Walk+outdoors+treadmill+tutorial',           sets: '—',   reps: '20–40 min',  kcalMin: 146, kcalMax: 255 },
 
-  { day: 'Thu', part: 'Steps', exercise: 'Brisk walk', url: 'https://www.youtube.com/results?search_query=Brisk+walk', sets: '', reps: '20–30 min' },
+  // ── Thursday: Warm-up + Upper B ──
+  { day: 'Thu', part: 'Warm-up', exercise: 'Rower or Bike (easy)',              url: 'https://www.youtube.com/results?search_query=Rowing+machine+bike+easy+warm+up',                 sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Thu', part: 'Warm-up', exercise: 'Face Pull (light)',                 url: 'https://www.youtube.com/results?search_query=Face+Pull+exercise+tutorial',                      sets: '2',   reps: '15',         kcalMin: 6,   kcalMax: 22  },
+  { day: 'Thu', part: 'Upper B', exercise: 'Incline Machine Chest Press',       url: 'https://www.youtube.com/results?search_query=Incline+Machine+Chest+Press+exercise+tutorial',   sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Machine Chest Press',      altUrl: 'https://www.youtube.com/results?search_query=Machine+Chest+Press+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Chest-Supported Row',               url: 'https://www.youtube.com/results?search_query=Chest-Supported+Row+exercise+tutorial',            sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Seated Cable Row',         altUrl: 'https://www.youtube.com/results?search_query=Seated+Cable+Row+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Lat Pulldown',                      url: 'https://www.youtube.com/results?search_query=Lat+Pulldown+exercise+tutorial',                   sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Assisted Pull-up Machine', altUrl: 'https://www.youtube.com/results?search_query=Assisted+Pull-up+Machine+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Face Pull',                         url: 'https://www.youtube.com/results?search_query=Face+Pull+exercise+tutorial+rear+delts',           sets: '2',   reps: '12–20',      kcalMin: 5,   kcalMax: 29,  altExercise: 'Rear Delt Machine',        altUrl: 'https://www.youtube.com/results?search_query=Rear+Delt+Machine+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Machine/Cable Lateral Raise',       url: 'https://www.youtube.com/results?search_query=Machine+Cable+Lateral+Raise+exercise+tutorial',   sets: '2',   reps: '12–15',      kcalMin: 5,   kcalMax: 22,  altExercise: 'Cable Lateral Raise',      altUrl: 'https://www.youtube.com/results?search_query=Cable+Lateral+Raise+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Overhead Cable Triceps Extension',  url: 'https://www.youtube.com/results?search_query=Overhead+Cable+Triceps+Extension+tutorial',       sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22,  altExercise: 'Triceps Pushdown',         altUrl: 'https://www.youtube.com/results?search_query=Triceps+Pushdown+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Cable Curl',                        url: 'https://www.youtube.com/results?search_query=Cable+Curl+exercise+tutorial',                    sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22  },
 
-  { day: 'Fri', part: 'Warm-up', exercise: 'Rower or Elliptical 5–7 min',    url: 'https://www.youtube.com/results?search_query=Rowing+machine+warm+up',     sets: '',    reps: '5–7 min' },
-  { day: 'Fri', part: 'Warm-up', exercise: 'Band external rotations',        url: 'https://www.youtube.com/results?search_query=Band+external+rotations',    sets: '2',   reps: '12–15' },
-  { day: 'Fri', part: 'Warm-up', exercise: 'Lat pulldown light',             url: 'https://www.youtube.com/results?search_query=Lat+pulldown+light',         sets: '1–2', reps: '12–15' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Chest Press Machine (flat)',     url: 'https://www.youtube.com/results?search_query=Chest+Press+Machine+flat',   sets: '3',   reps: '8–12' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Assisted Pull-up or Lat Pulldown', url: 'https://www.youtube.com/results?search_query=Assisted+Pull-up+Lat+Pulldown', sets: '3', reps: '8–12' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Pec Deck / Rear Delt Fly (machine)', url: 'https://www.youtube.com/results?search_query=Pec+Deck+Rear+Delt+Fly+machine', sets: '2–3', reps: '12–15' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Cable Row (or machine row)',     url: 'https://www.youtube.com/results?search_query=Cable+Row+machine+row',      sets: '3',   reps: '10–12' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Lateral Raise Machine (or cables)', url: 'https://www.youtube.com/results?search_query=Lateral+Raise+Machine+cables', sets: '2–3', reps: '12–15' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Overhead Cable Triceps Extension', url: 'https://www.youtube.com/results?search_query=Overhead+Cable+Triceps+Extension', sets: '2–3', reps: '10–15' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Hammer Curl (cable or dumbbells)', url: 'https://www.youtube.com/results?search_query=Hammer+Curl+cable+dumbbells', sets: '2–3', reps: '10–15' },
-  { day: 'Fri', part: 'Upper B', exercise: 'Dead Bug (slow)',                url: 'https://www.youtube.com/results?search_query=Dead+Bug+exercise+slow',     sets: '3',   reps: '8–12/side' },
+  // ── Friday: Steps / Cardio ──
+  { day: 'Fri', part: 'Steps / Cardio', exercise: 'Brisk Walk',                 url: 'https://www.youtube.com/results?search_query=Brisk+Walk+outdoors+treadmill+tutorial',           sets: '—',   reps: '20–40 min',  kcalMin: 146, kcalMax: 255 },
 
-  { day: 'Sat', part: 'Optional', exercise: 'Long walk / steps',     url: 'https://www.youtube.com/results?search_query=Long+walk+exercise', sets: '', reps: '45–60 min' },
-  { day: 'Sun', part: 'Rest',     exercise: 'Mobility + easy walk',  url: 'https://www.youtube.com/results?search_query=Mobility+easy+walk',  sets: '', reps: '15–30 min' },
+  // ── Saturday: Warm-up + Lower B ──
+  { day: 'Sat', part: 'Warm-up', exercise: 'Bike (easy)',                       url: 'https://www.youtube.com/results?search_query=Stationary+bike+easy+warm+up',                     sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Sat', part: 'Warm-up', exercise: 'Dead bug',                          url: 'https://www.youtube.com/results?search_query=Dead+bug+exercise+tutorial+proper+form',           sets: '2',   reps: '8/side',     kcalMin: 3,   kcalMax: 12  },
+  { day: 'Sat', part: 'Lower B', exercise: 'Leg Press (heavier)',               url: 'https://www.youtube.com/results?search_query=Leg+Press+exercise+tutorial',                      sets: '4',   reps: '8–12',       kcalMin: 7,   kcalMax: 35,  altExercise: 'Hack Squat Machine',       altUrl: 'https://www.youtube.com/results?search_query=Hack+Squat+Machine+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Seated Leg Curl',                   url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl+exercise+tutorial',                sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33,  altExercise: 'Lying Leg Curl',           altUrl: 'https://www.youtube.com/results?search_query=Lying+Leg+Curl+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Leg Extension',                     url: 'https://www.youtube.com/results?search_query=Leg+Extension+exercise+tutorial',                  sets: '3',   reps: '12–15',      kcalMin: 8,   kcalMax: 33  },
+  { day: 'Sat', part: 'Lower B', exercise: 'Hip Abduction Machine',             url: 'https://www.youtube.com/results?search_query=Hip+Abduction+Machine+exercise+tutorial',          sets: '3',   reps: '12–20',      kcalMin: 8,   kcalMax: 44,  altExercise: 'Cable Hip Abduction',      altUrl: 'https://www.youtube.com/results?search_query=Cable+Hip+Abduction+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Calf Raise',                        url: 'https://www.youtube.com/results?search_query=Calf+Raise+seated+standing+exercise+tutorial',     sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33,  altExercise: 'Leg Press Calf Raise',     altUrl: 'https://www.youtube.com/results?search_query=Leg+Press+Calf+Raise+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Side Plank',                        url: 'https://www.youtube.com/results?search_query=Side+Plank+exercise+tutorial',                     sets: '3',   reps: '20–40s/side', kcalMin: 13, kcalMax: 87,  altExercise: 'Pallof Press',             altUrl: 'https://www.youtube.com/results?search_query=Pallof+Press+exercise+tutorial' },
+
+  // ── Sunday: Steps / Recovery ──
+  { day: 'Sun', part: 'Steps / Recovery', exercise: 'Easy Walk + light mobility', url: 'https://www.youtube.com/results?search_query=Easy+walk+mobility+exercise+recovery',          sets: '—',   reps: '30–60 min',  kcalMin: 218, kcalMax: 382 },
 ]
 
 // ─── Normal workout ───────────────────────────────────────────────────────────
+// Same split as Ramadan (Upper/Lower — 3×/week); differences:
+//   – Tue: Side Plank (alt Pallof Press) instead of Pallof Press (alt Side Plank)
+//   – Thu: Rear Delt Machine (alt Face Pull) instead of Face Pull (alt Rear Delt Machine)
+//   – Wed/Fri cardio: 30–45 min instead of 20–40 min
 
 const NORMAL_WORKOUT: ProgramRow[] = [
-  { day: 'Mon', part: 'Warm-up', exercise: 'Treadmill walk (incline) 5–7 min',   url: 'https://www.youtube.com/results?search_query=Treadmill+walk+incline',          sets: '',    reps: '5–7 min' },
-  { day: 'Mon', part: 'Warm-up', exercise: 'Band pull-aparts / face pulls',       url: 'https://www.youtube.com/results?search_query=Band+pull-aparts+face+pulls',     sets: '2',   reps: '15' },
-  { day: 'Mon', part: 'Warm-up', exercise: 'Machine chest press light',           url: 'https://www.youtube.com/results?search_query=Machine+chest+press+light',       sets: '1–2', reps: '12–15' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Incline Chest Press Machine',         url: 'https://www.youtube.com/results?search_query=Incline+Chest+Press+Machine',     sets: '3',   reps: '8–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Lat Pulldown (neutral grip)',         url: 'https://www.youtube.com/results?search_query=Lat+Pulldown+neutral+grip',       sets: '3',   reps: '8–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Seated Row Machine',                 url: 'https://www.youtube.com/results?search_query=Seated+Row+Machine',              sets: '3',   reps: '10–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Shoulder Press Machine',             url: 'https://www.youtube.com/results?search_query=Shoulder+Press+Machine',          sets: '2–3', reps: '8–12' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Cable Triceps Pressdown',            url: 'https://www.youtube.com/results?search_query=Cable+Triceps+Pressdown',         sets: '2–3', reps: '10–15' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Cable Biceps Curl',                  url: 'https://www.youtube.com/results?search_query=Cable+Biceps+Curl',               sets: '2–3', reps: '10–15' },
-  { day: 'Mon', part: 'Upper A', exercise: 'Plank',                              url: 'https://www.youtube.com/results?search_query=Plank+exercise',                  sets: '3',   reps: '30–45s' },
+  // ── Monday: Warm-up + Upper A ──
+  { day: 'Mon', part: 'Warm-up', exercise: 'Bike or Elliptical (easy)',        url: 'https://www.youtube.com/results?search_query=Bike+or+Elliptical+easy+cardio',                    sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Mon', part: 'Warm-up', exercise: 'Bird-dog',                          url: 'https://www.youtube.com/results?search_query=Bird-dog+exercise+tutorial+proper+form',            sets: '2',   reps: '8/side',     kcalMin: 3,   kcalMax: 12  },
+  { day: 'Mon', part: 'Warm-up', exercise: 'Dead bug',                          url: 'https://www.youtube.com/results?search_query=Dead+bug+exercise+tutorial+proper+form',            sets: '2',   reps: '8/side',     kcalMin: 3,   kcalMax: 12  },
+  { day: 'Mon', part: 'Upper A', exercise: 'Machine Chest Press',               url: 'https://www.youtube.com/results?search_query=Machine+Chest+Press+exercise+tutorial',            sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Cable Chest Press',        altUrl: 'https://www.youtube.com/results?search_query=Cable+Chest+Press+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Lat Pulldown (neutral grip)',       url: 'https://www.youtube.com/results?search_query=Lat+Pulldown+neutral+grip+exercise+tutorial',      sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Straight-arm Pulldown',    altUrl: 'https://www.youtube.com/results?search_query=Straight-arm+Pulldown+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Seated Cable Row',                  url: 'https://www.youtube.com/results?search_query=Seated+Cable+Row+exercise+tutorial',              sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Chest-Supported Row',      altUrl: 'https://www.youtube.com/results?search_query=Chest-Supported+Row+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Machine Shoulder Press',            url: 'https://www.youtube.com/results?search_query=Machine+Shoulder+Press+exercise+tutorial',        sets: '2–3', reps: '8–12',       kcalMin: 3,   kcalMax: 26,  altExercise: 'Landmine Press',           altUrl: 'https://www.youtube.com/results?search_query=Landmine+Press+exercise+tutorial' },
+  { day: 'Mon', part: 'Upper A', exercise: 'Machine/Cable Lateral Raise',       url: 'https://www.youtube.com/results?search_query=Machine+Cable+Lateral+Raise+exercise+tutorial',  sets: '2',   reps: '12–15',      kcalMin: 5,   kcalMax: 22  },
+  { day: 'Mon', part: 'Upper A', exercise: 'Triceps Pushdown',                  url: 'https://www.youtube.com/results?search_query=Triceps+Pushdown+exercise+tutorial',              sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22  },
+  { day: 'Mon', part: 'Upper A', exercise: 'Hammer Curl',                       url: 'https://www.youtube.com/results?search_query=Hammer+Curl+exercise+tutorial',                  sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22  },
 
-  { day: 'Tue', part: 'Warm-up', exercise: 'Bike 5–7 min',              url: 'https://www.youtube.com/results?search_query=Stationary+bike+warm+up',    sets: '',    reps: '5–7 min' },
-  { day: 'Tue', part: 'Warm-up', exercise: 'Bodyweight glute bridge',   url: 'https://www.youtube.com/results?search_query=Bodyweight+glute+bridge',     sets: '2',   reps: '12–15' },
-  { day: 'Tue', part: 'Warm-up', exercise: 'Leg press light',           url: 'https://www.youtube.com/results?search_query=Leg+press+light+warm+up',    sets: '1–2', reps: '12–15' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Leg Press (limited depth; pain-free)', url: 'https://www.youtube.com/results?search_query=Leg+Press+limited+depth', sets: '4', reps: '8–12' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Seated Leg Curl',           url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl',            sets: '3',   reps: '10–15' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Leg Extension',             url: 'https://www.youtube.com/results?search_query=Leg+Extension+machine',      sets: '3',   reps: '10–15' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Hip Thrust Machine',        url: 'https://www.youtube.com/results?search_query=Hip+Thrust+Machine',         sets: '3',   reps: '8–12' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Cable Pull-Through (Alt: Hip Thrust / Glute Bridge)', url: 'https://www.youtube.com/results?search_query=Cable+Pull-Through', sets: '2–3', reps: '12–15' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Back Extension Machine',    url: 'https://www.youtube.com/results?search_query=Back+Extension+Machine',     sets: '2–3', reps: '10–15' },
-  { day: 'Tue', part: 'Lower A', exercise: 'Side Plank',                url: 'https://www.youtube.com/results?search_query=Side+Plank+exercise',        sets: '2',   reps: '20–40s/side' },
+  // ── Tuesday: Warm-up + Lower A ──
+  { day: 'Tue', part: 'Warm-up', exercise: 'Bike (easy)',                       url: 'https://www.youtube.com/results?search_query=Stationary+bike+easy+warm+up',                   sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Tue', part: 'Warm-up', exercise: 'Pallof Press (light)',              url: 'https://www.youtube.com/results?search_query=Pallof+Press+exercise+tutorial',                 sets: '2',   reps: '10/side',    kcalMin: 4,   kcalMax: 15  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Leg Press',                         url: 'https://www.youtube.com/results?search_query=Leg+Press+exercise+tutorial',                    sets: '4',   reps: '10–15',      kcalMin: 8,   kcalMax: 44  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Seated Leg Curl',                   url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl+exercise+tutorial',              sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Leg Extension',                     url: 'https://www.youtube.com/results?search_query=Leg+Extension+exercise+tutorial',                sets: '3',   reps: '12–15',      kcalMin: 8,   kcalMax: 33,  altExercise: 'Reverse Sled Drag',        altUrl: 'https://www.youtube.com/results?search_query=Reverse+Sled+Drag+exercise+tutorial' },
+  { day: 'Tue', part: 'Lower A', exercise: 'Hip Abduction Machine',             url: 'https://www.youtube.com/results?search_query=Hip+Abduction+Machine+exercise+tutorial',        sets: '3',   reps: '12–20',      kcalMin: 8,   kcalMax: 44  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Calf Raise',                        url: 'https://www.youtube.com/results?search_query=Calf+Raise+seated+standing+exercise+tutorial',   sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33  },
+  { day: 'Tue', part: 'Lower A', exercise: 'Side Plank',                        url: 'https://www.youtube.com/results?search_query=Side+Plank+exercise+tutorial',                   sets: '3',   reps: '20–40s/side', kcalMin: 13, kcalMax: 87,  altExercise: 'Pallof Press',             altUrl: 'https://www.youtube.com/results?search_query=Pallof+Press+exercise+tutorial' },
 
-  { day: 'Wed', part: 'Cardio', exercise: 'Brisk walk or Elliptical', url: 'https://www.youtube.com/results?search_query=Brisk+walk+elliptical+cardio', sets: '', reps: '25–35 min' },
+  // ── Wednesday: Steps / Cardio (longer than Ramadan) ──
+  { day: 'Wed', part: 'Steps / Cardio', exercise: 'Brisk Walk',                 url: 'https://www.youtube.com/results?search_query=Brisk+Walk+outdoors+treadmill+tutorial',         sets: '—',   reps: '30–45 min',  kcalMin: 218, kcalMax: 382 },
 
-  { day: 'Thu', part: 'Warm-up', exercise: 'Rower or Elliptical 5–7 min',        url: 'https://www.youtube.com/results?search_query=Rowing+machine+warm+up',          sets: '',    reps: '5–7 min' },
-  { day: 'Thu', part: 'Warm-up', exercise: 'Band external rotations',            url: 'https://www.youtube.com/results?search_query=Band+external+rotations',         sets: '2',   reps: '12–15' },
-  { day: 'Thu', part: 'Warm-up', exercise: 'Lat pulldown light',                 url: 'https://www.youtube.com/results?search_query=Lat+pulldown+light',              sets: '1–2', reps: '12–15' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Chest Press Machine (flat)',         url: 'https://www.youtube.com/results?search_query=Chest+Press+Machine+flat',        sets: '3',   reps: '8–12' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Assisted Pull-up or Lat Pulldown',  url: 'https://www.youtube.com/results?search_query=Assisted+Pull-up+Lat+Pulldown',   sets: '3',   reps: '8–12' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Pec Deck / Rear Delt Fly (machine)',url: 'https://www.youtube.com/results?search_query=Pec+Deck+Rear+Delt+Fly+machine', sets: '2–3', reps: '12–15' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Cable Row (or machine row)',         url: 'https://www.youtube.com/results?search_query=Cable+Row+machine+row',           sets: '3',   reps: '10–12' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Lateral Raise Machine (or cables)', url: 'https://www.youtube.com/results?search_query=Lateral+Raise+Machine+cables',    sets: '2–3', reps: '12–15' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Overhead Cable Triceps Extension',  url: 'https://www.youtube.com/results?search_query=Overhead+Cable+Triceps+Extension',sets: '2–3', reps: '10–15' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Hammer Curl (cable or dumbbells)',  url: 'https://www.youtube.com/results?search_query=Hammer+Curl+cable+dumbbells',     sets: '2–3', reps: '10–15' },
-  { day: 'Thu', part: 'Upper B', exercise: 'Dead Bug (slow)',                   url: 'https://www.youtube.com/results?search_query=Dead+Bug+exercise+slow',          sets: '3',   reps: '8–12/side' },
+  // ── Thursday: Warm-up + Upper B ──
+  { day: 'Thu', part: 'Warm-up', exercise: 'Rower or Bike (easy)',              url: 'https://www.youtube.com/results?search_query=Rowing+machine+bike+easy+warm+up',               sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Thu', part: 'Warm-up', exercise: 'Face Pull (light)',                 url: 'https://www.youtube.com/results?search_query=Face+Pull+exercise+tutorial',                    sets: '2',   reps: '15',         kcalMin: 6,   kcalMax: 22  },
+  { day: 'Thu', part: 'Upper B', exercise: 'Incline Machine Chest Press',       url: 'https://www.youtube.com/results?search_query=Incline+Machine+Chest+Press+exercise+tutorial', sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Machine Chest Press',      altUrl: 'https://www.youtube.com/results?search_query=Machine+Chest+Press+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Chest-Supported Row',               url: 'https://www.youtube.com/results?search_query=Chest-Supported+Row+exercise+tutorial',          sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Seated Cable Row',         altUrl: 'https://www.youtube.com/results?search_query=Seated+Cable+Row+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Lat Pulldown',                      url: 'https://www.youtube.com/results?search_query=Lat+Pulldown+exercise+tutorial',                 sets: '3',   reps: '8–12',       kcalMin: 5,   kcalMax: 26,  altExercise: 'Assisted Pull-up Machine', altUrl: 'https://www.youtube.com/results?search_query=Assisted+Pull-up+Machine+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Rear Delt Machine',                 url: 'https://www.youtube.com/results?search_query=Rear+Delt+Machine+exercise+tutorial',            sets: '2',   reps: '12–20',      kcalMin: 5,   kcalMax: 29,  altExercise: 'Face Pull',                altUrl: 'https://www.youtube.com/results?search_query=Face+Pull+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Machine/Cable Lateral Raise',       url: 'https://www.youtube.com/results?search_query=Machine+Cable+Lateral+Raise+exercise+tutorial', sets: '2',   reps: '12–15',      kcalMin: 5,   kcalMax: 22  },
+  { day: 'Thu', part: 'Upper B', exercise: 'Overhead Cable Triceps Extension',  url: 'https://www.youtube.com/results?search_query=Overhead+Cable+Triceps+Extension+tutorial',     sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22,  altExercise: 'Triceps Pushdown',         altUrl: 'https://www.youtube.com/results?search_query=Triceps+Pushdown+exercise+tutorial' },
+  { day: 'Thu', part: 'Upper B', exercise: 'Cable Curl',                        url: 'https://www.youtube.com/results?search_query=Cable+Curl+exercise+tutorial',                  sets: '2',   reps: '10–15',      kcalMin: 4,   kcalMax: 22  },
 
-  { day: 'Fri', part: 'Warm-up', exercise: 'Bike 5–7 min',                url: 'https://www.youtube.com/results?search_query=Stationary+bike+warm+up',     sets: '',    reps: '5–7 min' },
-  { day: 'Fri', part: 'Warm-up', exercise: 'Bodyweight glute bridge',     url: 'https://www.youtube.com/results?search_query=Bodyweight+glute+bridge',      sets: '2',   reps: '12–15' },
-  { day: 'Fri', part: 'Warm-up', exercise: 'Leg press light',             url: 'https://www.youtube.com/results?search_query=Leg+press+light+warm+up',     sets: '1–2', reps: '12–15' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Leg Press (different foot position)', url: 'https://www.youtube.com/results?search_query=Leg+Press+different+foot+position', sets: '4', reps: '8–12' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Seated Leg Curl',             url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl',             sets: '3',   reps: '10–15' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Leg Extension',               url: 'https://www.youtube.com/results?search_query=Leg+Extension+machine',       sets: '3',   reps: '10–15' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Hip Thrust Machine',          url: 'https://www.youtube.com/results?search_query=Hip+Thrust+Machine',          sets: '3',   reps: '8–12' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Back Extension Machine',      url: 'https://www.youtube.com/results?search_query=Back+Extension+Machine',      sets: '2–3', reps: '10–15' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Bird Dog (slow)',             url: 'https://www.youtube.com/results?search_query=Bird+Dog+exercise+slow',      sets: '2–3', reps: '8–12/side' },
-  { day: 'Fri', part: 'Lower B', exercise: 'Calf Raise Machine (optional)', url: 'https://www.youtube.com/results?search_query=Calf+Raise+Machine',       sets: '2–3', reps: '10–15' },
+  // ── Friday: Steps / Cardio ──
+  { day: 'Fri', part: 'Steps / Cardio', exercise: 'Brisk Walk',                 url: 'https://www.youtube.com/results?search_query=Brisk+Walk+outdoors+treadmill+tutorial',         sets: '—',   reps: '30–45 min',  kcalMin: 218, kcalMax: 382 },
 
-  { day: 'Sat', part: 'Steps', exercise: 'Long walk / leisure activity', url: 'https://www.youtube.com/results?search_query=Long+walk+exercise', sets: '', reps: '45–60 min' },
-  { day: 'Sun', part: 'Rest',  exercise: 'Mobility + easy walk',         url: 'https://www.youtube.com/results?search_query=Mobility+easy+walk',  sets: '', reps: '15–30 min' },
+  // ── Saturday: Warm-up + Lower B ──
+  { day: 'Sat', part: 'Warm-up', exercise: 'Bike (easy)',                       url: 'https://www.youtube.com/results?search_query=Stationary+bike+easy+warm+up',                   sets: '—',   reps: '5 min',      kcalMin: 36,  kcalMax: 64  },
+  { day: 'Sat', part: 'Warm-up', exercise: 'Dead bug',                          url: 'https://www.youtube.com/results?search_query=Dead+bug+exercise+tutorial+proper+form',         sets: '2',   reps: '8/side',     kcalMin: 3,   kcalMax: 12  },
+  { day: 'Sat', part: 'Lower B', exercise: 'Leg Press (heavier)',               url: 'https://www.youtube.com/results?search_query=Leg+Press+exercise+tutorial',                    sets: '4',   reps: '8–12',       kcalMin: 7,   kcalMax: 35,  altExercise: 'Hack Squat Machine',       altUrl: 'https://www.youtube.com/results?search_query=Hack+Squat+Machine+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Seated Leg Curl',                   url: 'https://www.youtube.com/results?search_query=Seated+Leg+Curl+exercise+tutorial',              sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33,  altExercise: 'Lying Leg Curl',           altUrl: 'https://www.youtube.com/results?search_query=Lying+Leg+Curl+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Leg Extension',                     url: 'https://www.youtube.com/results?search_query=Leg+Extension+exercise+tutorial',                sets: '3',   reps: '12–15',      kcalMin: 8,   kcalMax: 33  },
+  { day: 'Sat', part: 'Lower B', exercise: 'Hip Abduction Machine',             url: 'https://www.youtube.com/results?search_query=Hip+Abduction+Machine+exercise+tutorial',        sets: '3',   reps: '12–20',      kcalMin: 8,   kcalMax: 44,  altExercise: 'Cable Hip Abduction',      altUrl: 'https://www.youtube.com/results?search_query=Cable+Hip+Abduction+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Calf Raise',                        url: 'https://www.youtube.com/results?search_query=Calf+Raise+seated+standing+exercise+tutorial',   sets: '3',   reps: '10–15',      kcalMin: 6,   kcalMax: 33,  altExercise: 'Leg Press Calf Raise',     altUrl: 'https://www.youtube.com/results?search_query=Leg+Press+Calf+Raise+exercise+tutorial' },
+  { day: 'Sat', part: 'Lower B', exercise: 'Side Plank',                        url: 'https://www.youtube.com/results?search_query=Side+Plank+exercise+tutorial',                   sets: '3',   reps: '20–40s/side', kcalMin: 13, kcalMax: 87,  altExercise: 'Pallof Press',             altUrl: 'https://www.youtube.com/results?search_query=Pallof+Press+exercise+tutorial' },
+
+  // ── Sunday: Steps / Recovery ──
+  { day: 'Sun', part: 'Steps / Recovery', exercise: 'Easy Walk + light mobility', url: 'https://www.youtube.com/results?search_query=Easy+walk+mobility+exercise+recovery',        sets: '—',   reps: '30–60 min',  kcalMin: 218, kcalMax: 382 },
 ]
 
 // ─── Ramadan nutrition ────────────────────────────────────────────────────────
+// Calorie estimates from standard hand-portion library (±15–25% real-world error).
 
 const RAMADAN_NUTRITION: NutritionDay[] = [
   { day: 'Mon', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Harira (lentils) 1 bowl · Grilled chicken thighs 200g · Big salad (tomato/cucumber/onion) + 1 tbsp olive oil · 1 small whole-wheat khobz or 150g cooked rice' },
-    { meal: 'Snack',            items: '1 fruit (banana/orange) + 30g almonds · Mint tea no sugar' },
-    { meal: 'Pre/Suhoor',       items: '3 eggs omelette with veggies · 80–100g oats cooked in water + cinnamon + berries · 1 tbsp peanut butter' },
+    { meal: 'Iftar (Maghrib)', items: '2 dates + water + harira (1 bowl) · Grilled chicken or turkey + big salad + rice (1 cupped hand)',                 kcalMin: 400, kcalMax: 430 },
+    { meal: 'Snack',           items: '1 fruit (banana/orange) + handful nuts · OR 2 boiled eggs',                                                        kcalMin: 144, kcalMax: 270 },
+    { meal: 'Suhoor',          items: '3–4 eggs + oats or whole-grain bread (1 cupped hand) + cucumber/tomato + olive oil (1 tbsp)',                       kcalMin: 360, kcalMax: 438 },
   ]},
   { day: 'Tue', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Sardines or tuna 200g (or salmon 200g) · Roasted vegetables · 200g potatoes or 150g couscous' },
-    { meal: 'Snack',            items: 'Carrots/cucumber + olive tapenade or avocado · 1 fruit' },
-    { meal: 'Pre/Suhoor',       items: 'Lean beef kefta 200g · Lentil salad · 1 whole-wheat wrap or 1 small khobz' },
+    { meal: 'Iftar (Maghrib)', items: '2 dates + water · Kefta (lean beef) + roasted veggies + potatoes or rice (1 cupped hand)',                         kcalMin: 400, kcalMax: 512 },
+    { meal: 'Snack',           items: 'Tuna/sardines (1 can) + fruit',                                                                                    kcalMin: 260, kcalMax: 260 },
+    { meal: 'Suhoor',          items: 'Chicken breast or beef leftovers + bread (1 cupped hand) + salad',                                                 kcalMin: 200, kcalMax: 500 },
   ]},
   { day: 'Wed', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Harira (lentils) 1 bowl · Turkey/chicken tagine with olives & lemon 200g · Salad · 1 serving rice/couscous' },
-    { meal: 'Snack',            items: '2 boiled eggs OR 120g turkey slices · 1 fruit' },
-    { meal: 'Pre/Suhoor',       items: 'Overnight oats (water) 100g oats + chia · 2 eggs · 1 tbsp nuts' },
+    { meal: 'Iftar (Maghrib)', items: '1–2 dates + water + soup (small) · Salmon + big salad + lentils (1 cupped hand)',                                  kcalMin: 575, kcalMax: 600 },
+    { meal: 'Snack',           items: 'Fruit + nuts · OR eggs',                                                                                           kcalMin: 72,  kcalMax: 270 },
+    { meal: 'Suhoor',          items: '3 eggs + olive oil + veggies + small bread (½–1 cupped hand)',                                                     kcalMin: 488, kcalMax: 568 },
   ]},
   { day: 'Thu', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Salmon 200g · Zaalouk (eggplant salad) · 150–200g sweet potato' },
-    { meal: 'Snack',            items: 'Popcorn (air) or 2 rice cakes · 1 fruit' },
-    { meal: 'Pre/Suhoor',       items: 'Chicken breast 220g · Rice 150g cooked · Mixed veggies · 1 tbsp olive oil' },
+    { meal: 'Iftar (Maghrib)', items: '2 dates + water · Chicken tagine (olives + veggies) + rice (1 cupped hand)',                                       kcalMin: 400, kcalMax: 400 },
+    { meal: 'Snack',           items: 'Sardines or tuna + fruit · OR 2 eggs',                                                                             kcalMin: 144, kcalMax: 320 },
+    { meal: 'Suhoor',          items: 'Beef/kefta + salad + oats or bread (1 cupped hand)',                                                               kcalMin: 160, kcalMax: 490 },
   ]},
   { day: 'Fri', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Lentil soup 1 bowl · Beef tagine (lean) 200g · Salad · 1 small khobz' },
-    { meal: 'Snack',            items: 'Handful nuts (30g) + 1 fruit' },
-    { meal: 'Pre/Suhoor',       items: 'Egg shakshuka (3 eggs + tomato/pepper) · Oats 60–80g · 1 tbsp peanut butter' },
+    { meal: 'Iftar (Maghrib)', items: '1–2 dates + water · Fish (salmon/sardines/tuna) + salad + rice (1 cupped hand)',                                   kcalMin: 485, kcalMax: 510 },
+    { meal: 'Snack',           items: 'Fruit + nuts · OR eggs',                                                                                           kcalMin: 72,  kcalMax: 270 },
+    { meal: 'Suhoor',          items: '3–4 eggs + bread (½–1 cupped hand) + veggies',                                                                    kcalMin: 368, kcalMax: 520 },
   ]},
   { day: 'Sat', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Chicken brochettes 220g · Moroccan salad · 150g cooked pasta or rice' },
-    { meal: 'Snack',            items: 'Smoothie (water + banana + berries) + 2 boiled eggs' },
-    { meal: 'Pre/Suhoor',       items: 'Tuna salad (200g tuna) + olive oil · 1 whole-wheat wrap · 1 fruit' },
+    { meal: 'Iftar (Maghrib)', items: '2 dates + water + soup (small) · Grilled chicken + salad + potatoes/rice (1–2 cupped hands)',                      kcalMin: 580, kcalMax: 730 },
+    { meal: 'Snack',           items: 'Tuna/sardines + fruit',                                                                                            kcalMin: 320, kcalMax: 320 },
+    { meal: 'Suhoor',          items: 'Chicken/beef + oats or bread (1 cupped hand) + veggies + olive oil',                                              kcalMin: 350, kcalMax: 352 },
   ]},
   { day: 'Sun', meals: [
-    { meal: 'Iftar (Maghrib)',  items: 'Water + 2 dates · Harira (lentils) 1 bowl · Salmon or white fish 200g · Salad · 150g couscous' },
-    { meal: 'Snack',            items: '2 pieces dark chocolate (10–20g) + 1 fruit (controlled)' },
-    { meal: 'Pre/Suhoor',       items: 'Chicken & veggie stir-fry 220g · Oats 60g · Nuts 20g' },
+    { meal: 'Iftar (Maghrib)', items: '1–2 dates + water · Kefta or chicken + big salad + cooked veggies · Optional: ½ cupped hand carbs',               kcalMin: 285, kcalMax: 430 },
+    { meal: 'Snack',           items: 'Fruit · OR nuts (pick one)',                                                                                       kcalMin: 90,  kcalMax: 180 },
+    { meal: 'Suhoor',          items: '3 eggs + salad + small bread (½ cupped hand, optional)',                                                           kcalMin: 160, kcalMax: 376 },
   ]},
 ]
 
@@ -235,38 +261,38 @@ const RAMADAN_NUTRITION: NutritionDay[] = [
 
 const NORMAL_NUTRITION: NutritionDay[] = [
   { day: 'Mon', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Chicken tagine 220g + salad + 150g cooked rice' },
-    { meal: 'Snack',           items: '1 fruit + 30g nuts' },
-    { meal: 'Dinner (18:00)', items: 'Salmon 200g + roasted veggies + 200g potatoes' },
+    { meal: 'Meal 1 (12:00)',  items: 'Grilled chicken + big salad + rice (1–2 cupped hands)',                                                            kcalMin: 430, kcalMax: 580 },
+    { meal: 'Snack',           items: 'Fruit (banana/orange) + nuts (small handful) · OR 2 boiled eggs',                                                  kcalMin: 144, kcalMax: 270 },
+    { meal: 'Dinner (18:00)', items: 'Kefta (lean beef) + cooked vegetables + potatoes (1 cupped hand)',                                                  kcalMin: 390, kcalMax: 390 },
   ]},
   { day: 'Tue', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Tuna/sardine salad + 1 whole-wheat wrap' },
-    { meal: 'Snack',           items: '2 boiled eggs + carrots/cucumber' },
-    { meal: 'Dinner (18:00)', items: 'Lean beef kefta 200g + lentil salad + 1 small khobz' },
+    { meal: 'Meal 1 (12:00)',  items: 'Tuna/sardines + salad + bread (½–1 cupped hand)',                                                                  kcalMin: 390, kcalMax: 470 },
+    { meal: 'Snack',           items: 'Fruit · OR nuts (pick one)',                                                                                       kcalMin: 90,  kcalMax: 180 },
+    { meal: 'Dinner (18:00)', items: 'Salmon + big salad + optional rice (½–1 cupped hand)',                                                              kcalMin: 385, kcalMax: 460 },
   ]},
   { day: 'Wed', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Chicken breast 220g + couscous 150g cooked + veggies' },
-    { meal: 'Snack',           items: 'Fruit + coffee/tea (no sugar)' },
-    { meal: 'Dinner (18:00)', items: 'Omelette 3 eggs + veggies + 1 serving potatoes' },
+    { meal: 'Meal 1 (12:00)',  items: 'Chicken tagine (olives + veg) + rice (1–2 cupped hands)',                                                          kcalMin: 350, kcalMax: 500 },
+    { meal: 'Snack',           items: '2 eggs + fruit',                                                                                                   kcalMin: 234, kcalMax: 234 },
+    { meal: 'Dinner (18:00)', items: 'Beef + roasted vegetables + bread (½–1 cupped hand)',                                                               kcalMin: 340, kcalMax: 420 },
   ]},
   { day: 'Thu', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Salmon 200g + zaalouk + rice 150g cooked' },
-    { meal: 'Snack',           items: 'Nuts 20–30g + fruit' },
-    { meal: 'Dinner (18:00)', items: 'Turkey/chicken kebab 220g + salad + 1 wrap' },
+    { meal: 'Meal 1 (12:00)',  items: '3–4 eggs + salad + olive oil · No bread or ½ cupped hand max (rest/low-carb day)',                                 kcalMin: 416, kcalMax: 488 },
+    { meal: 'Snack',           items: 'Fruit',                                                                                                            kcalMin: 90,  kcalMax: 90  },
+    { meal: 'Dinner (18:00)', items: 'Chicken + big salad + cooked vegetables (no rice/potato)',                                                          kcalMin: 430, kcalMax: 430 },
   ]},
   { day: 'Fri', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Lentil soup + chicken 200g + salad' },
-    { meal: 'Snack',           items: '2 eggs OR turkey slices + fruit' },
-    { meal: 'Dinner (18:00)', items: 'Beef tagine 200g + veggies + small khobz' },
+    { meal: 'Meal 1 (12:00)',  items: 'Kefta + salad + rice (1–2 cupped hands)',                                                                          kcalMin: 490, kcalMax: 640 },
+    { meal: 'Snack',           items: 'Fruit + nuts · OR tuna',                                                                                           kcalMin: 230, kcalMax: 270 },
+    { meal: 'Dinner (18:00)', items: 'Fish (salmon/tuna/sardines) + vegetables + potatoes (1 cupped hand)',                                               kcalMin: 360, kcalMax: 360 },
   ]},
   { day: 'Sat', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Chicken brochettes 220g + rice 150g cooked + salad' },
-    { meal: 'Snack',           items: 'Popcorn (air) or rice cakes + fruit' },
-    { meal: 'Dinner (18:00)', items: 'Fish (tuna/sardines/salmon) 200g + veggies + potatoes' },
+    { meal: 'Meal 1 (12:00)',  items: 'Chicken + salad + rice (1–2 cupped hands)',                                                                        kcalMin: 430, kcalMax: 580 },
+    { meal: 'Snack',           items: '2 eggs · OR tuna + fruit',                                                                                         kcalMin: 144, kcalMax: 320 },
+    { meal: 'Dinner (18:00)', items: 'Beef + vegetables + bread (½–1 cupped hand)',                                                                       kcalMin: 340, kcalMax: 420 },
   ]},
   { day: 'Sun', meals: [
-    { meal: 'Meal 1 (12:00)',  items: 'Kefta 200g + couscous 150g cooked + salad' },
-    { meal: 'Snack',           items: 'Dark chocolate 10–20g + fruit (controlled)' },
-    { meal: 'Dinner (18:00)', items: 'Egg shakshuka 3 eggs + veggies + small khobz' },
+    { meal: 'Meal 1 (12:00)',  items: 'Tuna/sardines + salad + olive oil · Skip bread or ½ cupped hand (rest/low-carb day)',                              kcalMin: 280, kcalMax: 430 },
+    { meal: 'Snack',           items: 'Fruit · OR nuts (pick one)',                                                                                       kcalMin: 90,  kcalMax: 180 },
+    { meal: 'Dinner (18:00)', items: 'Chicken + vegetables + salad (no rice/potato)',                                                                     kcalMin: 280, kcalMax: 280 },
   ]},
 ]

@@ -346,7 +346,7 @@ function MealCard({
   mode,
   existingLog,
 }: {
-  meal:        { meal: string; items: string }
+  meal:        { meal: string; items: string; kcalMin?: number; kcalMax?: number }
   index:       number
   date:        string
   mode:        UserSettings['mode']
@@ -381,6 +381,11 @@ function MealCard({
         <div className="flex-1 min-w-0">
           <p className={cn('text-sm font-semibold', completed ? 'text-zinc-400' : 'text-zinc-100')}>
             {meal.meal}
+            {meal.kcalMin != null && (
+              <span className="ml-1.5 text-[11px] font-normal text-orange-400/70">
+                ~{meal.kcalMin}–{meal.kcalMax} kcal
+              </span>
+            )}
           </p>
           <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{meal.items}</p>
         </div>
@@ -422,13 +427,30 @@ function NutritionTodayView({ settings }: { settings: UserSettings }) {
 
   const doneCount = mealLogs.filter(l => l.completed).length
 
+  const consumedKcalMin = meals.reduce((sum, meal, i) => {
+    const done = mealLogs.find(l => l.mealIndex === i)?.completed
+    return done && meal.kcalMin != null ? sum + meal.kcalMin : sum
+  }, 0)
+  const consumedKcalMax = meals.reduce((sum, meal, i) => {
+    const done = mealLogs.find(l => l.mealIndex === i)?.completed
+    return done && meal.kcalMax != null ? sum + meal.kcalMax : sum
+  }, 0)
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
           {settings.mode === 'ramadan' ? 'Ramadan' : 'Normal'} plan
         </p>
-        <span className="text-xs text-zinc-500">{doneCount}/{meals.length} meals</span>
+        <div className="flex items-center gap-2">
+          {consumedKcalMin > 0 && (
+            <span className="text-xs text-orange-400/80 flex items-center gap-1">
+              <Flame size={11} />
+              {consumedKcalMin}–{consumedKcalMax} kcal
+            </span>
+          )}
+          <span className="text-xs text-zinc-500">{doneCount}/{meals.length} meals</span>
+        </div>
       </div>
 
       {meals.length === 0 && (
@@ -466,7 +488,14 @@ function NutritionWeekView({ settings }: { settings: UserSettings }) {
           <div className="divide-y divide-surface-800">
             {meals.map((meal, i) => (
               <div key={i} className="px-3 py-2.5">
-                <p className="text-xs font-semibold text-zinc-400 mb-0.5">{meal.meal}</p>
+                <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                  <p className="text-xs font-semibold text-zinc-400">{meal.meal}</p>
+                  {meal.kcalMin != null && (
+                    <span className="text-[10px] text-orange-400/60 shrink-0">
+                      ~{meal.kcalMin}–{meal.kcalMax}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-zinc-500 leading-relaxed">{meal.items}</p>
               </div>
             ))}
