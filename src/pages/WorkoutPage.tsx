@@ -59,16 +59,19 @@ export function WorkoutPage() {
   const plan        = useTodayPlan(settings)
   const today       = todayISO()
 
-  // Check for an existing session today
-  const existingSession = useLiveQuery(
-    (): Promise<WorkoutSession | undefined> =>
+  // Check for an existing session today.
+  // Wrapped in an object so useLiveQuery's `undefined` (loading) stays
+  // distinguishable from a resolved-but-empty result { session: undefined }.
+  const existingSessionResult = useLiveQuery(
+    (): Promise<{ session: WorkoutSession | undefined }> =>
       plan
         ? db.workoutSessions
             .where('date')
             .equals(today)
             .filter((s) => s.sessionTemplateId === plan.session.id)
             .first()
-        : Promise.resolve(undefined),
+            .then((session) => ({ session }))
+        : Promise.resolve({ session: undefined }),
     [today, plan?.session.id],
   )
 
@@ -183,7 +186,8 @@ export function WorkoutPage() {
 
   // ── Loading ──────────────────────────────────────────────────────
 
-  if (isLoading || existingSession === undefined) return <PageSpinner />
+  if (isLoading || existingSessionResult === undefined) return <PageSpinner />
+  const existingSession = existingSessionResult.session
 
   // ── No gym day ───────────────────────────────────────────────────
 
