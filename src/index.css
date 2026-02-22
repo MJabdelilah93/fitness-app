@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Remove tap highlight on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Better number input on mobile */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* Date input color fix in dark mode */
+  input[type='date']::-webkit-calendar-picker-indicator {
+    filter: invert(0.5);
+  }
+
+  /* Remove default focus ring in favour of custom ones */
+  :focus-visible {
+    outline: 2px solid theme('colors.accent.500');
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  body {
+    @apply bg-surface-950 text-zinc-100 antialiased;
+    /* Prevent iOS rubber-band scroll on the body itself */
+    overscroll-behavior-y: none;
+  }
+}
+
+@layer utilities {
+  /* Dynamic viewport height – accounts for mobile browser chrome */
+  .h-dvh {
+    height: 100dvh;
+  }
+
+  /* Momentum scrolling on iOS */
+  .scroll-ios {
+    -webkit-overflow-scrolling: touch;
+  }
+}
