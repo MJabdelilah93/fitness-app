@@ -245,10 +245,40 @@ export interface NutritionLog {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  ROW LOG  (per-exercise-row logging — new flat system)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface RowLog {
+  id?:         number
+  date:        string          // 'YYYY-MM-DD'
+  planMode:    TrainingMode
+  exerciseKey: string          // makeExerciseKey(name)
+  useAlt:      boolean
+  setsDone:    string          // e.g. '3'
+  repsDone:    string          // e.g. '10'
+  weightKg:    string          // e.g. '80', '' if not tracked
+  completed:   boolean
+  notes:       string
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MEAL LOG  (meal adherence per day — new nutrition system)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface MealLog {
+  id?:       number
+  date:      string          // 'YYYY-MM-DD'
+  planMode:  TrainingMode
+  mealIndex: number          // 0, 1, 2 … matches meals array index for that day
+  completed: boolean
+  notes:     string
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  BACKUP ENVELOPE  (JSON export / import)
 // ═══════════════════════════════════════════════════════════════════
 
-export const BACKUP_VERSION = 1 as const
+export const BACKUP_VERSION = 2 as const
 
 export interface BackupData {
   version:         typeof BACKUP_VERSION
@@ -260,6 +290,8 @@ export interface BackupData {
   stepsLogs:       StepsLog[]
   bodyLogs:        BodyLog[]
   nutritionLogs:   NutritionLog[]
+  rowLogs:         RowLog[]
+  mealLogs:        MealLog[]
 }
 
 // ═══════════════════════════════════════════════════════════════════

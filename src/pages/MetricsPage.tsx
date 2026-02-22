@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Footprints, Scale, Flame, Dumbbell, Check, Ruler, ChevronDown, ChevronUp } from 'lucide-react'
+import { Footprints, Scale, Flame, Dumbbell, Check, Ruler, ChevronDown, ChevronUp, UtensilsCrossed, CalendarDays } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 
 import { useSettings } from '../hooks/useSettings'
-import { db, upsertStepsLog, upsertBodyLog, upsertNutritionLog } from '../db/db'
+import { db, upsertStepsLog, upsertBodyLog, upsertMealLog } from '../db/db'
 import { todayISO, lastNDays, formatDateShort } from '../utils/dateUtils'
 import { toKg, fromKg } from '../utils/units'
 import { Button } from '../components/ui/Button'
@@ -11,9 +11,8 @@ import { Input } from '../components/ui/Input'
 import { Card } from '../components/ui/Card'
 import { PageSpinner } from '../components/ui/Spinner'
 import { cn } from '../utils/cn'
-import { getNutritionTarget } from '../data/nutritionTargets'
-import type { MealTemplate } from '../data/nutritionTargets'
-import type { UserSettings, StepsLog, BodyLog, NutritionLog } from '../types'
+import { getDayMeals, getWeekMeals } from '../data/programData'
+import type { UserSettings, StepsLog, BodyLog, MealLog } from '../types'
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
@@ -336,223 +335,176 @@ function BodyRow({
   )
 }
 
-// ─── Nutrition Targets Card ───────────────────────────────────────────────────
-
-function MealRow({ meal }: { meal: MealTemplate }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="border-b border-surface-800 last:border-0">
-      <button
-        type="button"
-        onClick={() => setOpen((p) => !p)}
-        className="w-full flex items-center justify-between py-3 px-4 text-left"
-      >
-        <div>
-          <p className="text-sm font-medium text-zinc-200">{meal.name}</p>
-          <p className="text-xs text-zinc-500">{meal.timing}</p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0 ml-2">
-          <span className="text-xs tabular-nums text-zinc-400">
-            {meal.caloriesMin}–{meal.caloriesMax} kcal · {meal.proteinG}g P
-          </span>
-          {open
-            ? <ChevronUp size={14} className="text-zinc-500" />
-            : <ChevronDown size={14} className="text-zinc-500" />}
-        </div>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-2">
-          <ul className="space-y-1">
-            {meal.suggestions.map((s) => (
-              <li key={s} className="text-xs text-zinc-400 flex gap-2">
-                <span className="text-accent-500 shrink-0">•</span>
-                <span>{s}</span>
-              </li>
-            ))}
-          </ul>
-          {meal.note && (
-            <p className="text-xs text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mt-2">
-              {meal.note}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function NutritionTargetsCard({ mode }: { mode: UserSettings['mode'] }) {
-  const [showMeals, setShowMeals] = useState(false)
-  const target = getNutritionTarget(mode)
-
-  return (
-    <Card padding="none">
-      {/* Header */}
-      <div className="px-4 pt-4 pb-3 border-b border-surface-800">
-        <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">
-          Daily Targets
-        </p>
-        <p className="text-xs text-accent-400 font-medium mb-3">{target.topRule}</p>
-
-        {/* Macro summary row */}
-        <div className="grid grid-cols-4 gap-2 text-center">
-          {[
-            { label: 'Calories', value: `${target.caloriesMin}–${target.caloriesMax}`, unit: 'kcal', color: 'text-orange-400' },
-            { label: 'Protein',  value: `${target.proteinG}`,                          unit: 'g',    color: 'text-blue-400'   },
-            { label: 'Carbs',    value: `${target.carbsGMin}–${target.carbsGMax}`,     unit: 'g',    color: 'text-yellow-400' },
-            { label: 'Fat',      value: `${target.fatGMin}–${target.fatGMax}`,         unit: 'g',    color: 'text-pink-400'   },
-          ].map(({ label, value, unit, color }) => (
-            <div key={label} className="bg-surface-800 rounded-xl py-2 px-1">
-              <p className={cn('text-sm font-bold tabular-nums', color)}>{value}</p>
-              <p className="text-[10px] text-zinc-500">{unit}</p>
-              <p className="text-[10px] text-zinc-600 mt-0.5">{label}</p>
-            </div>
-          ))}
-        </div>
-
-        <p className="text-xs text-zinc-600 mt-2 text-center">
-          Water: {(target.waterMlMin / 1000).toFixed(1)} L minimum
-        </p>
-      </div>
-
-      {/* Meal templates toggle */}
-      <button
-        type="button"
-        onClick={() => setShowMeals((p) => !p)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-zinc-300 hover:text-zinc-100 transition-colors"
-      >
-        <span>Meal Templates ({target.meals.length})</span>
-        {showMeals
-          ? <ChevronUp size={16} className="text-zinc-500" />
-          : <ChevronDown size={16} className="text-zinc-500" />}
-      </button>
-
-      {showMeals && (
-        <div>
-          {target.meals.map((meal) => (
-            <MealRow key={meal.id} meal={meal} />
-          ))}
-        </div>
-      )}
-    </Card>
-  )
-}
-
 // ─── Nutrition Tab ────────────────────────────────────────────────────────────
 
-function NutritionTab({ settings }: { settings: UserSettings }) {
-  const today    = todayISO()
-  const isRamadan = settings.mode === 'ramadan'
+type NutriSubTab = 'today' | 'week'
 
-  const [calories, setCalories] = useState('')
-  const [protein,  setProtein]  = useState('')
-  const [saved,    setSaved]    = useState(false)
+function MealCard({
+  meal,
+  index,
+  date,
+  mode,
+  existingLog,
+}: {
+  meal:        { meal: string; items: string }
+  index:       number
+  date:        string
+  mode:        UserSettings['mode']
+  existingLog: MealLog | undefined
+}) {
+  const [open,      setOpen]      = useState(false)
+  const [notes,     setNotes]     = useState(existingLog?.notes ?? '')
+  const completed = existingLog?.completed ?? false
 
-  const todayLog = useLiveQuery(
-    () => db.nutritionLogs.where('date').equals(today).first(),
-    [today],
-  )
+  const handleCheck = async (checked: boolean) => {
+    await upsertMealLog(date, mode, index, { completed: checked, notes })
+  }
 
-  const history = useLiveQuery(async () => {
-    const days = lastNDays(14)
-    const logs = await db.nutritionLogs.where('date').anyOf(days).toArray()
-    return logs.sort((a, b) => b.date.localeCompare(a.date))
-  }, [])
-
-  useEffect(() => {
-    if (!todayLog) return
-    if (calories === '' && todayLog.calories > 0) setCalories(String(todayLog.calories))
-    if (protein  === '' && todayLog.proteinG > 0) setProtein(String(todayLog.proteinG))
-  }, [todayLog]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSave = async () => {
-    const cal = parseFloat(calories)
-    const pro = parseFloat(protein)
-    if (isNaN(cal) && isNaN(pro)) return
-    await upsertNutritionLog(today, {
-      ...(!isNaN(cal) ? { calories: cal } : {}),
-      ...(!isNaN(pro) ? { proteinG: pro } : {}),
-    })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleNotes = async (val: string) => {
+    setNotes(val)
+    await upsertMealLog(date, mode, index, { completed, notes: val })
   }
 
   return (
-    <>
-      <NutritionTargetsCard mode={settings.mode} />
-
-      <Card>
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
-            Today's Log
+    <div className={cn(
+      'rounded-xl border transition-colors',
+      completed ? 'bg-green-500/5 border-green-500/20' : 'bg-surface-900 border-surface-700',
+    )}>
+      <div className="flex items-start gap-3 p-3">
+        <input
+          type="checkbox"
+          checked={completed}
+          onChange={e => handleCheck(e.target.checked)}
+          className="mt-0.5 w-4 h-4 rounded accent-accent-500 shrink-0 cursor-pointer"
+          aria-label={`Mark ${meal.meal} as done`}
+        />
+        <div className="flex-1 min-w-0">
+          <p className={cn('text-sm font-semibold', completed ? 'text-zinc-400' : 'text-zinc-100')}>
+            {meal.meal}
           </p>
-
-          {isRamadan && (
-            <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
-              Ramadan mode: log combined Suhoor + Iftar daily totals
-            </div>
-          )}
-
-          <Input
-            label="Calories"
-            type="number"
-            inputMode="numeric"
-            placeholder="0"
-            value={calories}
-            onChange={(e) => setCalories(e.target.value)}
-            suffix="kcal"
-            prefix={<Flame size={16} className="text-orange-400" />}
-          />
-
-          <Input
-            label="Protein"
-            type="number"
-            inputMode="numeric"
-            placeholder="0"
-            value={protein}
-            onChange={(e) => setProtein(e.target.value)}
-            suffix="g"
-            prefix={<Dumbbell size={16} className="text-blue-400" />}
-          />
-
-          <Button
-            variant="primary"
-            fullWidth
-            onClick={handleSave}
-            icon={saved ? <Check size={16} /> : undefined}
-          >
-            {saved ? 'Saved!' : 'Log Nutrition'}
-          </Button>
+          <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{meal.items}</p>
         </div>
-      </Card>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="p-1 text-zinc-600 hover:text-zinc-300 transition-colors shrink-0"
+        >
+          {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+      </div>
 
-      <HistorySection
-        label="Last 14 Days"
-        empty={history !== undefined && history.length === 0}
-      >
-        {(history ?? []).map((log) => (
-          <NutritionRow key={log.id ?? log.date} log={log} isToday={log.date === today} />
-        ))}
-      </HistorySection>
-    </>
+      {open && (
+        <div className="border-t border-surface-700 px-3 py-3 space-y-2">
+          <p className="text-xs text-zinc-400 leading-relaxed">{meal.items}</p>
+          <input
+            type="text"
+            value={notes}
+            onChange={e => handleNotes(e.target.value)}
+            placeholder="Notes (substitutions, cravings…)"
+            className="w-full bg-surface-800 rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none border border-surface-600 focus:border-accent-500/50"
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
-function NutritionRow({ log, isToday }: { log: NutritionLog; isToday: boolean }) {
+function NutritionTodayView({ settings }: { settings: UserSettings }) {
+  const today = todayISO()
+  const meals = getDayMeals(settings.mode, today)
+
+  const mealLogs = useLiveQuery(
+    () => db.mealLogs.where('date').equals(today).toArray(),
+    [today],
+  )
+
+  if (!mealLogs) return null
+
+  const doneCount = mealLogs.filter(l => l.completed).length
+
   return (
-    <div className="flex items-center justify-between py-3 px-4">
-      <p className={cn('text-sm font-medium', isToday ? 'text-accent-400' : 'text-zinc-200')}>
-        {isToday ? 'Today' : formatDateShort(log.date)}
-      </p>
-      <div className="flex items-center gap-4 text-sm tabular-nums">
-        <span className="text-zinc-300">
-          {log.calories.toLocaleString()} kcal
-        </span>
-        <span className="text-zinc-500">
-          {log.proteinG}g prot
-        </span>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+          {settings.mode === 'ramadan' ? 'Ramadan' : 'Normal'} plan
+        </p>
+        <span className="text-xs text-zinc-500">{doneCount}/{meals.length} meals</span>
       </div>
+
+      {meals.length === 0 && (
+        <p className="text-center text-zinc-600 text-sm py-8">No meal plan for today.</p>
+      )}
+
+      {meals.map((meal, i) => (
+        <MealCard
+          key={i}
+          meal={meal}
+          index={i}
+          date={today}
+          mode={settings.mode}
+          existingLog={mealLogs.find(l => l.mealIndex === i)}
+        />
+      ))}
     </div>
+  )
+}
+
+function NutritionWeekView({ settings }: { settings: UserSettings }) {
+  const weekMeals = getWeekMeals(settings.mode)
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+        {settings.mode === 'ramadan' ? 'Ramadan' : 'Normal'} — full week
+      </p>
+
+      {weekMeals.map(({ day, meals }) => (
+        <div key={day} className="bg-surface-900 border border-surface-700 rounded-xl overflow-hidden">
+          <div className="bg-surface-800 px-3 py-2">
+            <p className="text-xs font-bold text-zinc-300">{day}</p>
+          </div>
+          <div className="divide-y divide-surface-800">
+            {meals.map((meal, i) => (
+              <div key={i} className="px-3 py-2.5">
+                <p className="text-xs font-semibold text-zinc-400 mb-0.5">{meal.meal}</p>
+                <p className="text-xs text-zinc-500 leading-relaxed">{meal.items}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function NutritionTab({ settings }: { settings: UserSettings }) {
+  const [subTab, setSubTab] = useState<NutriSubTab>('today')
+
+  return (
+    <>
+      {/* Sub-tab bar */}
+      <div className="flex rounded-xl overflow-hidden border border-surface-700 bg-surface-900">
+        {([
+          { id: 'today', label: 'Today',     icon: <UtensilsCrossed size={13} /> },
+          { id: 'week',  label: 'Full Week',  icon: <CalendarDays   size={13} /> },
+        ] as { id: NutriSubTab; label: string; icon: React.ReactNode }[]).map(({ id, label, icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSubTab(id)}
+            className={cn(
+              'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold transition-colors',
+              subTab === id ? 'bg-accent-500/15 text-accent-400' : 'text-zinc-500',
+            )}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'today' && <NutritionTodayView settings={settings} />}
+      {subTab === 'week'  && <NutritionWeekView  settings={settings} />}
+    </>
   )
 }

@@ -6,18 +6,23 @@ import type {
   StepsLog,
   BodyLog,
   NutritionLog,
+  RowLog,
+  MealLog,
+  TrainingMode,
 } from '../types'
 
 // ─── Schema version history ──────────────────────────────────────────────────
 //  v1  – initial schema aligned with product spec (M2)
 
 class FitnessDB extends Dexie {
-  settings!:      Table<UserSettings,   number>
+  settings!:        Table<UserSettings,   number>
   workoutSessions!: Table<WorkoutSession, number>
-  exerciseLogs!:  Table<ExerciseLog,    number>
-  stepsLogs!:     Table<StepsLog,       number>
-  bodyLogs!:      Table<BodyLog,        number>
-  nutritionLogs!: Table<NutritionLog,   number>
+  exerciseLogs!:    Table<ExerciseLog,    number>
+  stepsLogs!:       Table<StepsLog,       number>
+  bodyLogs!:        Table<BodyLog,        number>
+  nutritionLogs!:   Table<NutritionLog,   number>
+  rowLogs!:         Table<RowLog,         number>
+  mealLogs!:        Table<MealLog,        number>
 
   constructor() {
     super('FitnessDB')
@@ -52,6 +57,18 @@ class FitnessDB extends Dexie {
         if (row['notifyWeighInDay']  == null) row['notifyWeighInDay']  = 'MON'
       }),
     )
+
+    // v3 – New flat-data workout logging (rowLogs) + meal adherence (mealLogs).
+    this.version(3).stores({
+      settings:         '++id',
+      workoutSessions:  '++id, date, sessionTemplateId, status',
+      exerciseLogs:     '++id, workoutSessionId, exerciseId',
+      stepsLogs:        '++id, &date',
+      bodyLogs:         '++id, &date',
+      nutritionLogs:    '++id, &date',
+      rowLogs:          '++id, date, exerciseKey',
+      mealLogs:         '++id, date',
+    })
   }
 }
 
@@ -128,6 +145,53 @@ export async function upsertNutritionLog(
   }
 }
 
+// ─── Row log helpers ──────────────────────────────────────────────────────────
+
+export async function upsertRowLog(
+  date: string,
+  planMode: TrainingMode,
+  exerciseKey: string,
+  data: Partial<Omit<RowLog, 'id' | 'date' | 'planMode' | 'exerciseKey'>>,
+): Promise<void> {
+  const existing = await db.rowLogs
+    .where('date').equals(date)
+    .filter(l => l.exerciseKey === exerciseKey)
+    .first()
+  if (existing?.id != null) {
+    await db.rowLogs.update(existing.id, data)
+  } else {
+    await db.rowLogs.add({
+      date, planMode, exerciseKey,
+      useAlt: false, setsDone: '', repsDone: '', weightKg: '',
+      completed: false, notes: '',
+      ...data,
+    })
+  }
+}
+
+// ─── Meal log helpers ─────────────────────────────────────────────────────────
+
+export async function upsertMealLog(
+  date: string,
+  planMode: TrainingMode,
+  mealIndex: number,
+  data: Partial<Pick<MealLog, 'completed' | 'notes'>>,
+): Promise<void> {
+  const existing = await db.mealLogs
+    .where('date').equals(date)
+    .filter(l => l.mealIndex === mealIndex)
+    .first()
+  if (existing?.id != null) {
+    await db.mealLogs.update(existing.id, data)
+  } else {
+    await db.mealLogs.add({
+      date, planMode, mealIndex,
+      completed: false, notes: '',
+      ...data,
+    })
+  }
+}
+
 // ─── Backup helpers ───────────────────────────────────────────────────────────
 
 /** Atomically wipe all tables — used before import. */
@@ -141,7 +205,7 @@ export async function clearAllData(): Promise<void> {
 
 /** Fetch every table's data for backup. */
 export async function getAllData() {
-  const [settings, workoutSessions, exerciseLogs, stepsLogs, bodyLogs, nutritionLogs] =
+  const [settings, workoutSessions, exerciseLogs, stepsLogs, bodyLogs, nutritionLogs, rowLogs, mealLogs] =
     await Promise.all([
       db.settings.toArray(),
       db.workoutSessions.toArray(),
@@ -149,6 +213,8 @@ export async function getAllData() {
       db.stepsLogs.toArray(),
       db.bodyLogs.toArray(),
       db.nutritionLogs.toArray(),
+      db.rowLogs.toArray(),
+      db.mealLogs.toArray(),
     ])
-  return { settings, workoutSessions, exerciseLogs, stepsLogs, bodyLogs, nutritionLogs }
+  return { settings, workoutSessions, exerciseLogs, stepsLogs, bodyLogs, nutritionLogs, rowLogs, mealLogs }
 }

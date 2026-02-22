@@ -3,7 +3,7 @@
  * All data stays local; this is the only data-portability mechanism.
  */
 import { db, clearAllData } from '../db/db'
-import { BACKUP_VERSION, type BackupData, type UserSettings } from '../types'
+import { BACKUP_VERSION, type BackupData, type UserSettings, type RowLog, type MealLog } from '../types'
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,8 @@ export async function createBackup(): Promise<BackupData> {
     stepsLogs,
     bodyLogs,
     nutritionLogs,
+    rowLogs,
+    mealLogs,
   ] = await Promise.all([
     db.settings.toArray(),
     db.workoutSessions.toArray(),
@@ -22,6 +24,8 @@ export async function createBackup(): Promise<BackupData> {
     db.stepsLogs.toArray(),
     db.bodyLogs.toArray(),
     db.nutritionLogs.toArray(),
+    db.rowLogs.toArray(),
+    db.mealLogs.toArray(),
   ])
 
   const settings = settingsArr[0]
@@ -37,6 +41,8 @@ export async function createBackup(): Promise<BackupData> {
     stepsLogs,
     bodyLogs,
     nutritionLogs,
+    rowLogs,
+    mealLogs,
   }
 }
 
@@ -71,7 +77,8 @@ function validateBackup(raw: unknown): BackupData {
   }
   const b = raw as Record<string, unknown>
 
-  if (b.version !== BACKUP_VERSION) {
+  // Accept v1 backups (upgrade silently — new tables just start empty)
+  if (b.version !== 1 && b.version !== BACKUP_VERSION) {
     throw new BackupValidationError(
       `Unsupported backup version: ${b.version}. Expected ${BACKUP_VERSION}.`,
     )
@@ -83,6 +90,9 @@ function validateBackup(raw: unknown): BackupData {
   if (!s.mode || (s.mode !== 'normal' && s.mode !== 'ramadan')) {
     throw new BackupValidationError('Backup settings.mode must be "normal" or "ramadan".')
   }
+  // Normalise missing new fields
+  if (!Array.isArray(b.rowLogs))  b.rowLogs  = []
+  if (!Array.isArray(b.mealLogs)) b.mealLogs = []
   return raw as BackupData
 }
 
@@ -123,6 +133,12 @@ export async function restoreBackup(jsonText: string): Promise<void> {
     }
     if (data.nutritionLogs.length) {
       await db.nutritionLogs.bulkAdd(strip(data.nutritionLogs) as typeof data.nutritionLogs)
+    }
+    if (data.rowLogs?.length) {
+      await db.rowLogs.bulkAdd(strip(data.rowLogs as RowLog[]) as RowLog[])
+    }
+    if (data.mealLogs?.length) {
+      await db.mealLogs.bulkAdd(strip(data.mealLogs as MealLog[]) as MealLog[])
     }
   })
 }
