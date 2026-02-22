@@ -20,12 +20,12 @@ import { Badge }          from '../components/ui/Badge'
 import { PageSpinner }    from '../components/ui/Spinner'
 import { EmptyState }     from '../components/ui/EmptyState'
 import type { SetInput }  from '../components/workout/SetRow'
-import type { WorkoutSession } from '../types'
+import type { WorkoutSession, SessionTemplate } from '../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildInitialExerciseStates(
-  session: ReturnType<typeof useTodayPlan>['session'] extends undefined ? never : NonNullable<ReturnType<typeof useTodayPlan>>['session'],
+  session: SessionTemplate,
   weightUnit: 'kg' | 'lbs',
 ): ExerciseState[] {
   return session.exercises.map((pe) => {
@@ -61,7 +61,7 @@ export function WorkoutPage() {
 
   // Check for an existing session today
   const existingSession = useLiveQuery(
-    () =>
+    (): Promise<WorkoutSession | undefined> =>
       plan
         ? db.workoutSessions
             .where('date')
