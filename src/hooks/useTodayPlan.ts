@@ -58,13 +58,13 @@ function buildSchedule(
   return out
 }
 
-export function useTodayPlan(settings: UserSettings | null | undefined): TodayPlan | null {
+export function useTodayPlan(settings: UserSettings | null | undefined, date?: string): TodayPlan | null {
   return useMemo(() => {
     if (!settings) return null
 
-    const date    = todayISO()
-    const jsDow   = getDayOfWeek(date)                                   // number 0–6
-    const dow     = JS_DAY_TO_DOW[jsDow as keyof typeof JS_DAY_TO_DOW]  // DayOfWeek string
+    const d     = date ?? todayISO()
+    const jsDow = getDayOfWeek(d)                                        // number 0–6
+    const dow   = JS_DAY_TO_DOW[jsDow as keyof typeof JS_DAY_TO_DOW]    // DayOfWeek string
     if (!dow) return null
 
     const program = getProgram(settings.mode)
@@ -83,12 +83,12 @@ export function useTodayPlan(settings: UserSettings | null | undefined): TodayPl
     const labels = DAY_LABELS as Record<string, string>
 
     return {
-      date,
+      date: d,
       dow,
       dayLabel:  labels[dow] ?? dow,
       session,
       isGymDay:  session.gymDay,
       programId: program.id,
     }
-  }, [settings])
+  }, [settings, date])
 }

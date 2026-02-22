@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Dumbbell, Play, CheckCircle, Clock, Footprints,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 
@@ -9,7 +10,7 @@ import { useSettings }    from '../hooks/useSettings'
 import { useTodayPlan }   from '../hooks/useTodayPlan'
 import { db }             from '../db/db'
 import { exerciseOrStub } from '../data/exercises'
-import { todayISO, formatDuration } from '../utils/dateUtils'
+import { todayISO, toISODate, formatDayFull, formatDuration } from '../utils/dateUtils'
 import { fromKg }         from '../utils/units'
 
 import { ExerciseCard, type ExerciseState } from '../components/workout/ExerciseCard'
@@ -47,6 +48,61 @@ function buildInitialExerciseStates(
   })
 }
 
+// ─── Date navigation bar ──────────────────────────────────────────────────────
+
+function DateNav({
+  offset,
+  onChange,
+}: {
+  offset: number
+  onChange: (n: number) => void
+}) {
+  const label = useMemo(() => {
+    if (offset === 0) return 'Today'
+    const d = new Date()
+    d.setDate(d.getDate() + offset)
+    return formatDayFull(toISODate(d))
+  }, [offset])
+
+  return (
+    <div className="flex items-center justify-between">
+      <button
+        type="button"
+        onClick={() => onChange(offset - 1)}
+        className="p-2 -ml-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-surface-800 transition-colors"
+        aria-label="Previous day"
+      >
+        <ChevronLeft size={18} />
+      </button>
+
+      <div className="flex items-center gap-2">
+        <span className={`text-sm font-semibold ${offset === 0 ? 'text-accent-400' : 'text-zinc-200'}`}>
+          {label}
+        </span>
+        {offset !== 0 && (
+          <button
+            type="button"
+            onClick={() => onChange(0)}
+            className="text-xs px-2 py-0.5 rounded-full bg-accent-500/15 text-accent-400 hover:bg-accent-500/25 transition-colors"
+          >
+            Today
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onChange(offset + 1)}
+        disabled={offset >= 6}
+        className="p-2 -mr-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-surface-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        aria-label="Next day"
+      >
+        <ChevronRight size={18} />
+      </button>
+    </div>
+  )
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 type Phase = 'preview' | 'active' | 'done'
@@ -56,10 +112,22 @@ interface RestState { seconds: number; total: number }
 export function WorkoutPage() {
   const { settings, isLoading } = useSettings()
   const navigate    = useNavigate()
-  const plan        = useTodayPlan(settings)
   const today       = todayISO()
 
-  // Check for an existing session today.
+  // Date navigation
+  const [dateOffset, setDateOffset] = useState(0)
+  const selectedDate = useMemo(() => {
+    if (dateOffset === 0) return today
+    const d = new Date()
+    d.setDate(d.getDate() + dateOffset)
+    return toISODate(d)
+  }, [dateOffset, today])
+
+  const isViewingToday = selectedDate === today
+
+  const plan = useTodayPlan(settings, selectedDate)
+
+  // Check for an existing session on the selected day.
   // Wrapped in an object so useLiveQuery's `undefined` (loading) stays
   // distinguishable from a resolved-but-empty result { session: undefined }.
   const existingSessionResult = useLiveQuery(
@@ -67,12 +135,12 @@ export function WorkoutPage() {
       plan
         ? db.workoutSessions
             .where('date')
-            .equals(today)
+            .equals(selectedDate)
             .filter((s) => s.sessionTemplateId === plan.session.id)
             .first()
             .then((session) => ({ session }))
         : Promise.resolve({ session: undefined }),
-    [today, plan?.session.id],
+    [selectedDate, plan?.session.id],
   )
 
   const [phase,            setPhase]            = useState<Phase>('preview')
@@ -88,6 +156,11 @@ export function WorkoutPage() {
     if (!plan?.isGymDay || exerciseStates.length > 0) return
     setExerciseStates(buildInitialExerciseStates(plan.session, settings?.weightUnit ?? 'kg'))
   }, [plan, settings?.weightUnit]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset exercise states when browsing a different day
+  useEffect(() => {
+    setExerciseStates([])
+  }, [selectedDate])
 
   // Elapsed time ticker
   useEffect(() => {
@@ -125,7 +198,6 @@ export function WorkoutPage() {
 
   const handleSetComplete = useCallback((exIdx: number, restSeconds: number) => {
     setRest({ seconds: restSeconds, total: restSeconds })
-    // Auto-expand next exercise if all sets done for current
     setExerciseStates((prev) => {
       const next = [...prev]
       const allDone = next[exIdx].sets.every((s) => s.completed)
@@ -153,7 +225,6 @@ export function WorkoutPage() {
         notes:             data.notes,
       })
 
-      // Save exercise logs
       for (const es of exerciseStates) {
         const completedSets = es.sets
           .map((s, i) => ({ s, i }))
@@ -189,11 +260,84 @@ export function WorkoutPage() {
   if (isLoading || existingSessionResult === undefined) return <PageSpinner />
   const existingSession = existingSessionResult.session
 
-  // ── No gym day ───────────────────────────────────────────────────
+  // ── Browse mode (any day other than today) ───────────────────────
+
+  if (!isViewingToday) {
+    const isPast = selectedDate < today
+    return (
+      <div className="px-4 pt-4 space-y-4 animate-fade-in">
+        <DateNav offset={dateOffset} onChange={setDateOffset} />
+
+        {!plan || !plan.isGymDay ? (
+          <EmptyState
+            icon={<Footprints size={40} className="text-green-400" />}
+            title="Steps day"
+            description={plan?.session.name ?? 'Rest or steps day'}
+          />
+        ) : (
+          <>
+            {/* Session header */}
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-xl bg-accent-500/15 flex items-center justify-center shrink-0">
+                <Dumbbell size={22} className="text-accent-400" />
+              </div>
+              <div>
+                <h1 className="text-lg font-extrabold text-zinc-100 leading-tight">
+                  {plan.session.name}
+                </h1>
+                <p className="text-sm text-zinc-500">{plan.session.description}</p>
+                <div className="flex gap-2 mt-1 flex-wrap">
+                  <Badge color="orange">{plan.session.exercises.length} exercises</Badge>
+                  <Badge color="zinc">~{plan.session.estimatedMinutes} min</Badge>
+                  {isPast
+                    ? existingSession?.status === 'completed'
+                      ? <Badge color="green">Completed ✓</Badge>
+                      : <Badge color="zinc">Not logged</Badge>
+                    : <Badge color="blue">Upcoming</Badge>
+                  }
+                </div>
+              </div>
+            </div>
+
+            {/* Warm-up */}
+            {plan.session.warmupProtocol && (
+              <div className="bg-surface-900 border border-surface-700 rounded-2xl p-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">
+                  Warm-up Protocol
+                </p>
+                <p className="text-sm text-zinc-300">{plan.session.warmupProtocol}</p>
+              </div>
+            )}
+
+            {/* Exercise list */}
+            <div className="bg-surface-900 border border-surface-700 rounded-2xl divide-y divide-surface-800">
+              {plan.session.exercises.map((pe, i) => {
+                const ex = exerciseOrStub(pe.exerciseId)
+                return (
+                  <div key={pe.exerciseId} className="flex items-center gap-3 px-4 py-3">
+                    <span className="text-xs text-zinc-600 w-4 text-right">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-zinc-200 truncate">{ex.name}</p>
+                      <p className="text-[11px] text-zinc-600">
+                        {pe.setScheme.sets} × {pe.setScheme.repsMin}-{pe.setScheme.repsMax} · RIR {pe.setScheme.rirTarget}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Today: no gym day ────────────────────────────────────────────
 
   if (!plan || !plan.isGymDay) {
     return (
-      <div className="px-4 pt-6">
+      <div className="px-4 pt-4 space-y-4">
+        <DateNav offset={dateOffset} onChange={setDateOffset} />
         <EmptyState
           icon={<Footprints size={40} className="text-green-400" />}
           title="Steps day today"
@@ -208,11 +352,12 @@ export function WorkoutPage() {
     )
   }
 
-  // ── Already completed today ──────────────────────────────────────
+  // ── Today: already completed ─────────────────────────────────────
 
   if (existingSession?.status === 'completed' && phase === 'preview') {
     return (
-      <div className="px-4 pt-6">
+      <div className="px-4 pt-4 space-y-4">
+        <DateNav offset={dateOffset} onChange={setDateOffset} />
         <EmptyState
           icon={<CheckCircle size={40} className="text-green-400" />}
           title="Workout done today!"
@@ -227,7 +372,7 @@ export function WorkoutPage() {
     )
   }
 
-  // ── Done (just finished) ─────────────────────────────────────────
+  // ── Today: just finished ─────────────────────────────────────────
 
   if (phase === 'done') {
     return (
@@ -246,11 +391,13 @@ export function WorkoutPage() {
     )
   }
 
-  // ── Preview (start screen) ───────────────────────────────────────
+  // ── Today: preview (start screen) ───────────────────────────────
 
   if (phase === 'preview') {
     return (
       <div className="px-4 pt-4 space-y-4 animate-fade-in">
+        <DateNav offset={dateOffset} onChange={setDateOffset} />
+
         <div className="flex items-start gap-3">
           <div className="w-12 h-12 rounded-xl bg-accent-500/15 flex items-center justify-center shrink-0">
             <Dumbbell size={22} className="text-accent-400" />
@@ -308,7 +455,7 @@ export function WorkoutPage() {
     )
   }
 
-  // ── Active workout ───────────────────────────────────────────────
+  // ── Today: active workout ────────────────────────────────────────
 
   const totalSets     = exerciseStates.reduce((a, e) => a + e.sets.length, 0)
   const completedSets = exerciseStates.reduce((a, e) => a + e.sets.filter((s) => s.completed).length, 0)
