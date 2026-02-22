@@ -131,19 +131,22 @@ export function ExerciseRowCard({ row, date, mode, readOnly = false }: Props) {
           aria-label={`Mark ${active.name} as done`}
         />
 
-        {/* Exercise name (YouTube link) */}
-        <a
-          href={active.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            'flex-1 text-sm font-medium leading-snug flex items-start gap-1',
-            completed ? 'text-zinc-400 line-through' : 'text-zinc-100',
-          )}
-        >
-          {active.name}
-          <ExternalLink size={11} className="mt-0.5 shrink-0 text-zinc-600" />
-        </a>
+        {/* Exercise name (YouTube link) — wrapped in flex-1 div so the
+            link's hit area covers only the text, not the entire row */}
+        <div className="flex-1 min-w-0">
+          <a
+            href={active.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              'inline-flex items-start gap-1 text-sm font-medium leading-snug',
+              completed ? 'text-zinc-400 line-through' : 'text-zinc-100',
+            )}
+          >
+            {active.name}
+            <ExternalLink size={11} className="mt-0.5 shrink-0 text-zinc-600" />
+          </a>
+        </div>
 
         {/* Alt toggle */}
         {alt && !readOnly && (
